@@ -24,7 +24,7 @@ pub type TooSelector {
 }
 
 pub type ChainStep {
-  LLMStep(prompt: String)
+  LLMStep(llm_config: LLMConfig)
   ToolStep(tool: Tool)
   PromptTemplate(
     template: handles.Template,
@@ -57,7 +57,7 @@ pub type Error {
 }
 
 pub type LLMConfig {
-  LLMConfig(base_url: String, model: String, temperature: Float)
+  LLMConfig(host: String, model: String, temperature: Float)
 }
 
 pub type LLMResponse {
@@ -70,8 +70,8 @@ pub fn new() -> Chain {
 }
 
 // Add an LLM step to the chain
-pub fn add_llm(chain: Chain, prompt: String) -> Chain {
-  Chain(..chain, steps: list.append(chain.steps, [LLMStep(prompt)]))
+pub fn add_llm(chain: Chain, llm_config: LLMConfig) -> Chain {
+  Chain(..chain, steps: list.append(chain.steps, [LLMStep(llm_config)]))
 }
 
 // Add a tool step to the chain
@@ -109,24 +109,19 @@ pub fn set_variable(chain: Chain, key: String, value: String) -> Chain {
 }
 
 // Execute the chain
-pub fn run(
-  config: LLMConfig,
-  chain: Chain,
-  input: String,
-) -> Result(String, Error) {
-  case execute_steps(chain.steps, input, chain.memory, config, call_ollama) {
+pub fn run(chain: Chain, input: String) -> Result(String, Error) {
+  case execute_steps(chain.steps, input, chain.memory, call_ollama) {
     Ok(#(output, _new_memory)) -> Ok(output)
     Error(e) -> Error(e)
   }
 }
 
 pub fn run_with(
-  config: LLMConfig,
   chain: Chain,
   input: String,
   llm_engine: fn(String, LLMConfig) -> Result(LLMResponse, Error),
 ) -> Result(String, Error) {
-  case execute_steps(chain.steps, input, chain.memory, config, llm_engine) {
+  case execute_steps(chain.steps, input, chain.memory, llm_engine) {
     Ok(#(output, _new_memory)) -> Ok(output)
     Error(e) -> Error(e)
   }
@@ -183,7 +178,7 @@ fn call_ollama(prompt: String, config: LLMConfig) -> Result(LLMResponse, Error) 
     request.new()
     // TODO: parse URL
     |> request.set_scheme(http.Http)
-    |> request.set_host(config.base_url)
+    |> request.set_host(config.host)
     |> request.set_method(http.Post)
     |> request.set_path("/api/generate")
     |> request.set_body(json.to_string(body))
@@ -210,40 +205,35 @@ fn execute_steps(
   steps: List(ChainStep),
   input: String,
   memory: Memory,
-  llm_config: LLMConfig,
   llm_engine: fn(String, LLMConfig) -> Result(LLMResponse, Error),
 ) -> Result(#(String, Memory), Error) {
   case steps {
     [] -> Ok(#(input, memory))
 
-    [LLMStep(prompt), ..rest] -> {
+    [LLMStep(llm_config), ..rest] -> {
       // Call Ollama with the prompt and input
-      let full_prompt = prompt <> "\n" <> input
-      case llm_engine(full_prompt, llm_config) {
-        Ok(Response(output)) ->
-          execute_steps(rest, output, memory, llm_config, llm_engine)
+      case llm_engine(input, llm_config) {
+        Ok(Response(output)) -> execute_steps(rest, output, memory, llm_engine)
         Error(e) -> Error(e)
       }
     }
 
     [ToolStep(tool), ..rest] -> {
       case tool.function(input) {
-        Ok(output) ->
-          execute_steps(rest, output, memory, llm_config, llm_engine)
+        Ok(output) -> execute_steps(rest, output, memory, llm_engine)
         Error(e) -> Error(e)
       }
     }
 
     [PromptTemplate(template, vars, tools), ..rest] -> {
       let output = interpolate_template(template, vars, memory.variables, tools)
-      execute_steps(rest, output, memory, llm_config, llm_engine)
+      execute_steps(rest, output, memory, llm_engine)
     }
 
     [ChainBreaker(should_break), ..rest] ->
       case should_break(input) {
-        option.Some(output) ->
-          execute_steps([], output, memory, llm_config, llm_engine)
-        _ -> execute_steps(rest, input, memory, llm_config, llm_engine)
+        option.Some(output) -> execute_steps([], output, memory, llm_engine)
+        _ -> execute_steps(rest, input, memory, llm_engine)
       }
   }
 }
