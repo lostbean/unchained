@@ -8,18 +8,26 @@ gleam add unchained
 ```
 
 ```gleam
-import unchained/agent
+import unchained
 
 pub fn main() {
   let tool =
-    agent.Tool(
+    unchained.Tool(
       name: "format",
       description: "Format the translation",
       function: fn(x) { Ok(string.uppercase(x)) },
     )
+
+  let config =
+    unchained.LLMConfig(
+      base_url: "localhost:11434",
+      model: "llama3.2:3b",
+      temperature: 0.0,
+    )
+
   let chain =
-    agent.new()
-    |> agent.add_prompt_template(
+    unchained.new()
+    |> unchained.add_prompt_template(
       "Translate this to {{ language }}: {{ input }}
     Just reply with the translation, do not include any explanation. Make sure to format the answer first.
 
@@ -34,21 +42,15 @@ pub fn main() {
     Tool Selected: <tool name>
     ",
       ["language", "input"],
-      [agent.ToolSelector(fn(_) { Some("") }, tool)],
+      [unchained.ToolSelector(fn(_) { Some("") }, tool)],
     )
     |> should.be_ok()
-    |> agent.set_variable("language", "French")
-    |> agent.add_llm("Translate:")
-    |> agent.add_tool(tool)
+    |> unchained.set_variable("language", "French")
+    |> unchained.add_llm(config)
+    |> unchained.add_tool(tool)
 
-  let config =
-    agent.LLMConfig(
-      base_url: "localhost:11434",
-      model: "llama3.2:3b",
-      temperature: 0.0,
-    )
   // Run the chain
-  agent.run(config, chain, "lost bread")
+  unchained.run(config, chain, "lost bread")
   |> should.be_ok()
   |> should.equal("PAIN PERDU")
 }
