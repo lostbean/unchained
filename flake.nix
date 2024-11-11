@@ -6,7 +6,6 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
   outputs = {
-    self,
     nixpkgs,
     flake-utils,
     ...
@@ -22,14 +21,16 @@
             )
           ];
         };
+
+        devTools = with pkgs; [
+          gleam
+          erlang
+          rebar3
+          ollama
+        ];
       in {
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            gleam
-            erlang
-            rebar3
-          ];
-
+          buildInputs = devTools;
           shellHook = ''
             echo "⭐ environment is ready!"
           '';

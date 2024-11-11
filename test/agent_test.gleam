@@ -15,24 +15,13 @@ pub fn chain_test() {
       description: "Format the translation",
       function: fn(x) { Ok(string.uppercase(x)) },
     )
+
   let chain =
     agent.new()
     |> agent.add_prompt_template(
-      "Translate this to {{ language }}: {{ input }}
-    Just reply with the translation, do not include any explanation. Make sure to format the answer first.
-
-    Here is the list of tools available to use:
-    {{#each tools}}
-      Function Name: {{name}}
-      Function Description: {{description}}
-      ---
-    {{/each}}
-
-    To use too call it with:
-    Tool Selected: <tool name>
-    ",
+      "Translate this to {{ language }}: {{ input }}",
       ["language", "input"],
-      [agent.ToolSelector(fn(_) { Some("") }, tool)],
+      [],
     )
     |> should.be_ok()
     |> agent.set_variable("language", "French")
@@ -46,8 +35,12 @@ pub fn chain_test() {
       model: "llama3.2:3b",
       temperature: 0.0,
     )
+
   // Run the chain
-  agent.run(config, chain, "Hello world")
+  agent.run_with(config, chain, "Hello world", fn(input, _cfg) {
+    input |> should.equal("Translate:\nTranslate this to French: lost bread")
+    Ok(agent.Response("pain perdu"))
+  })
   |> should.be_ok()
-  |> should.equal("PAIN    PERDU")
+  |> should.equal("PAIN PERDU")
 }

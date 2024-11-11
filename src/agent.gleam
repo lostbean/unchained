@@ -60,7 +60,7 @@ pub type LLMConfig {
   LLMConfig(base_url: String, model: String, temperature: Float)
 }
 
-type OllamaResponse {
+pub type LLMResponse {
   Response(response: String)
 }
 
@@ -114,20 +114,20 @@ pub fn run(
   chain: Chain,
   input: String,
 ) -> Result(String, Error) {
-  case execute_steps(chain.steps, input, chain.memory, config) {
-    Ok(#(output, new_memory)) -> {
-      // Update memory with the new history entry
-      let updated_memory =
-        Memory(
-          ..new_memory,
-          history: [
-            HistoryEntry(input: input, output: output, timestamp: birl.now()),
-            ..new_memory.history
-          ],
-        )
+  case execute_steps(chain.steps, input, chain.memory, config, call_ollama) {
+    Ok(#(output, _new_memory)) -> Ok(output)
+    Error(e) -> Error(e)
+  }
+}
 
-      Ok(output)
-    }
+pub fn run_with(
+  config: LLMConfig,
+  chain: Chain,
+  input: String,
+  llm_engine: fn(String, LLMConfig) -> Result(LLMResponse, Error),
+) -> Result(String, Error) {
+  case execute_steps(chain.steps, input, chain.memory, config, llm_engine) {
+    Ok(#(output, _new_memory)) -> Ok(output)
     Error(e) -> Error(e)
   }
 }
@@ -165,10 +165,7 @@ fn interpolate_template(
 }
 
 // Call Ollama API
-fn call_ollama(
-  prompt: String,
-  config: LLMConfig,
-) -> Result(OllamaResponse, Error) {
+fn call_ollama(prompt: String, config: LLMConfig) -> Result(LLMResponse, Error) {
   let body =
     json.object([
       #("model", json.string(config.model)),
@@ -214,6 +211,7 @@ fn execute_steps(
   input: String,
   memory: Memory,
   llm_config: LLMConfig,
+  llm_engine: fn(String, LLMConfig) -> Result(LLMResponse, Error),
 ) -> Result(#(String, Memory), Error) {
   case steps {
     [] -> Ok(#(input, memory))
@@ -221,28 +219,31 @@ fn execute_steps(
     [LLMStep(prompt), ..rest] -> {
       // Call Ollama with the prompt and input
       let full_prompt = prompt <> "\n" <> input
-      case call_ollama(full_prompt, llm_config) {
-        Ok(Response(output)) -> execute_steps(rest, output, memory, llm_config)
+      case llm_engine(full_prompt, llm_config) {
+        Ok(Response(output)) ->
+          execute_steps(rest, output, memory, llm_config, llm_engine)
         Error(e) -> Error(e)
       }
     }
 
     [ToolStep(tool), ..rest] -> {
       case tool.function(input) {
-        Ok(output) -> execute_steps(rest, output, memory, llm_config)
+        Ok(output) ->
+          execute_steps(rest, output, memory, llm_config, llm_engine)
         Error(e) -> Error(e)
       }
     }
 
     [PromptTemplate(template, vars, tools), ..rest] -> {
       let output = interpolate_template(template, vars, memory.variables, tools)
-      execute_steps(rest, output, memory, llm_config)
+      execute_steps(rest, output, memory, llm_config, llm_engine)
     }
 
     [ChainBreaker(should_break), ..rest] ->
       case should_break(input) {
-        option.Some(output) -> execute_steps([], output, memory, llm_config)
-        _ -> execute_steps(rest, input, memory, llm_config)
+        option.Some(output) ->
+          execute_steps([], output, memory, llm_config, llm_engine)
+        _ -> execute_steps(rest, input, memory, llm_config, llm_engine)
       }
   }
 }
