@@ -25,12 +25,12 @@ pub fn chain_test() {
 
   // Run empty chain
   unchained.new()
-  |> unchained.run_with("Hey", fn(input, _cfg) {
+  |> unchained.run_with(fn(input, _cfg) {
     input |> should.equal("Hey")
     Ok(unchained.Response("Hello"))
   })
   |> should.be_ok()
-  |> should.equal("Hey")
+  |> should.equal("")
 
   // Run the chain
   unchained.new()
@@ -42,7 +42,7 @@ pub fn chain_test() {
   |> unchained.set_variable("input", "lost bread")
   |> unchained.add_llm(config)
   |> unchained.add_tool(tool)
-  |> unchained.run_with("Hello world", fn(input, _cfg) {
+  |> unchained.run_with(fn(input, _cfg) {
     input |> should.equal("Translate this to French: lost bread")
     Ok(unchained.Response("pain perdu"))
   })
@@ -79,10 +79,10 @@ Tool Selected: <tool name>
   )
   |> should.be_ok()
   |> unchained.add_tool(tool)
-  |> unchained.run_with("Hello world", fn(input, _cfg) {
+  |> unchained.run_with(fn(input, _cfg) {
     input
     |> should.equal(
-      "Hello world
+      "
 Here is the list of tools available to test:
 
   Function Name: format

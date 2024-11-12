@@ -4,7 +4,6 @@ import gleam/dynamic
 import gleam/http
 import gleam/http/request
 import gleam/httpc
-import gleam/io
 import gleam/json
 import gleam/list
 import gleam/option.{type Option}
@@ -120,8 +119,8 @@ pub fn set_variable(chain: Chain, key: String, value: String) -> Chain {
 }
 
 // Execute the chain
-pub fn run(chain: Chain, input: String) -> Result(String, Error) {
-  case execute_steps(chain.steps, input, chain.memory, call_ollama) {
+pub fn run(chain: Chain) -> Result(String, Error) {
+  case execute_steps(chain.steps, "", chain.memory, call_ollama) {
     Ok(#(output, _new_memory)) -> Ok(output)
     Error(e) -> Error(e)
   }
@@ -129,10 +128,9 @@ pub fn run(chain: Chain, input: String) -> Result(String, Error) {
 
 pub fn run_with(
   chain: Chain,
-  input: String,
   llm_engine: fn(String, LLMConfig) -> Result(LLMResponse, Error),
 ) -> Result(String, Error) {
-  case execute_steps(chain.steps, input, chain.memory, llm_engine) {
+  case execute_steps(chain.steps, "", chain.memory, llm_engine) {
     Ok(#(output, _new_memory)) -> Ok(output)
     Error(e) -> Error(e)
   }
@@ -178,8 +176,6 @@ fn call_ollama(prompt: String, config: LLMConfig) -> Result(LLMResponse, Error) 
       #("temperature", json.float(config.temperature)),
       #("stream", json.bool(False)),
     ])
-
-  io.print(prompt)
 
   let ollama_response_decoder =
     dynamic.decode1(Response, dynamic.field("response", dynamic.string))

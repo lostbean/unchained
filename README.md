@@ -51,7 +51,7 @@ pub fn main() {
     |> unchained.add_tool(tool)
 
   // Run the chain
-  unchained.run(chain, "lost bread")
+  unchained.run(chain)
   |> should.be_ok()
   |> should.equal("PAIN PERDU")
 }
