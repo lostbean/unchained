@@ -20,13 +20,18 @@ pub type Chain {
 }
 
 pub type TooSelector {
-  ToolSelector(select: fn(String) -> Option(String), tool: Tool)
+  ToolSelector(selector: fn(String) -> Option(String), tool: Tool)
 }
 
 pub type ChainStep {
   LLMStep(llm_config: LLMConfig)
+  LLMStepWithToolSelection(
+    llm_config: LLMConfig,
+    tools: List(TooSelector),
+    template: handles.Template,
+  )
   ToolStep(tool: Tool)
-  PromptTemplate(template: handles.Template, tools: List(TooSelector))
+  PromptTemplate(template: handles.Template)
   ChainBreaker(should_stop: fn(String) -> Option(String))
 }
 
@@ -75,18 +80,31 @@ pub fn add_tool(chain: Chain, tool: Tool) -> Chain {
   Chain(..chain, steps: list.append(chain.steps, [ToolStep(tool)]))
 }
 
-// Add a prompt template step
-pub fn add_prompt_template(
+pub fn add_llm_with_tool_selection(
   chain: Chain,
+  llm_config: LLMConfig,
   template_str: String,
-  tools: List(TooSelector),
+  tool_selectors: List(TooSelector),
 ) -> Result(Chain, TokenizerError) {
   handles.prepare(template_str)
   |> result.map(fn(template) {
     Chain(
       ..chain,
-      steps: list.append(chain.steps, [PromptTemplate(template, tools)]),
+      steps: list.append(chain.steps, [
+        LLMStepWithToolSelection(llm_config, tool_selectors, template),
+      ]),
     )
+  })
+}
+
+// Add a prompt template step
+pub fn add_prompt_template(
+  chain: Chain,
+  template_str: String,
+) -> Result(Chain, TokenizerError) {
+  handles.prepare(template_str)
+  |> result.map(fn(template) {
+    Chain(..chain, steps: list.append(chain.steps, [PromptTemplate(template)]))
   })
 }
 
@@ -210,6 +228,29 @@ fn execute_steps(
       }
     }
 
+    [LLMStepWithToolSelection(llm_config, tool_selectors, template), ..rest] -> {
+      // Call Ollama with the prompt and input
+      let tool_prompt =
+        interpolate_template(template, memory.variables, tool_selectors)
+      case llm_engine(input <> "\n" <> tool_prompt, llm_config) {
+        Ok(Response(output)) -> {
+          let with_observations =
+            list.find_map(tool_selectors, fn(tool_selector) {
+              let ToolSelector(selector, tool) = tool_selector
+              selector(output)
+              |> option.map(fn(tool_input) { tool.function(tool_input) })
+              |> option.to_result(Nil)
+            })
+            |> result.unwrap(Ok(output))
+          case with_observations {
+            Ok(output) -> execute_steps(rest, output, memory, llm_engine)
+            Error(e) -> Error(e)
+          }
+        }
+        Error(e) -> Error(e)
+      }
+    }
+
     [ToolStep(tool), ..rest] -> {
       case tool.function(input) {
         Ok(output) -> execute_steps(rest, output, memory, llm_engine)
@@ -217,8 +258,8 @@ fn execute_steps(
       }
     }
 
-    [PromptTemplate(template, tools), ..rest] -> {
-      let output = interpolate_template(template, memory.variables, tools)
+    [PromptTemplate(template), ..rest] -> {
+      let output = interpolate_template(template, memory.variables, [])
       execute_steps(rest, output, memory, llm_engine)
     }
 

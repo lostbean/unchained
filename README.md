@@ -29,9 +29,11 @@ pub fn main() {
     unchained.new()
     |> unchained.add_prompt_template(
       "Translate this to {{ language }}: {{ input }}
-    Just reply with the translation, do not include any explanation. Make sure to format the answer first.
-
-    Here is the list of tools available to use:
+    Just reply with the translation, do not include any explanation. Make sure to format the answer first.")
+    |> should.be_ok()
+    |> unchained.add_llm_with_tool_selection(
+      config,
+      "Here is the list of tools available to {{ input }}:
     {{#each tools}}
       Function Name: {{name}}
       Function Description: {{description}}
@@ -39,18 +41,17 @@ pub fn main() {
     {{/each}}
 
     To use too call it with:
+
     Tool Selected: <tool name>
-    ",
-      ["language", "input"],
-      [unchained.ToolSelector(fn(_) { Some("") }, tool)],
-    )
+    ")
     |> should.be_ok()
+    |> unchained.set_variable("input", "lost bread")
     |> unchained.set_variable("language", "French")
     |> unchained.add_llm(config)
     |> unchained.add_tool(tool)
 
   // Run the chain
-  unchained.run(config, chain, "lost bread")
+  unchained.run(chain, "lost bread")
   |> should.be_ok()
   |> should.equal("PAIN PERDU")
 }
