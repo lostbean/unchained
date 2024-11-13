@@ -53,6 +53,7 @@ pub fn main() {
   // Run the chain
   unchained.run(chain)
   |> should.be_ok()
+  |> unchained.get_eval_output()
   |> should.equal("PAIN PERDU")
 }
 ```
@@ -65,3 +66,9 @@ Further documentation can be found at <https://hexdocs.pm/unchained>.
 gleam run   # Run the project
 gleam test  # Run the tests
 ```
+
+## TODO
+
+- [ ] Use Iterators for chaining
+- [ ] Support for more models: OpenAI, Anthropic, ...
+- [ ] Support streaming API
