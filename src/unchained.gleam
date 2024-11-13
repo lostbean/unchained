@@ -18,6 +18,10 @@ pub type Chain {
   Chain(steps: List(ChainStep), memory: Memory)
 }
 
+pub type ChainEval {
+  ChainEval(output: String, memory: Memory)
+}
+
 pub type TooSelector {
   ToolSelector(selector: fn(String) -> Option(String), tool: Tool)
 }
@@ -39,7 +43,9 @@ pub type Memory {
 }
 
 pub type HistoryEntry {
-  HistoryEntry(input: String, output: String, timestamp: Time)
+  LLMCall(input: String, output: String, timestamp: Time)
+  ToolExecution(input: String, output: String, tool: Tool, timestamp: Time)
+  ChainBreak(input: String, output: String, timestamp: Time)
 }
 
 pub type Tool {
@@ -118,22 +124,24 @@ pub fn set_variable(chain: Chain, key: String, value: String) -> Chain {
   )
 }
 
+pub fn get_eval_output(eval: ChainEval) -> String {
+  eval.output
+}
+
+pub fn get_eval_memory(eval: ChainEval) -> Memory {
+  eval.memory
+}
+
 // Execute the chain
-pub fn run(chain: Chain) -> Result(String, Error) {
-  case execute_steps(chain.steps, "", chain.memory, call_ollama) {
-    Ok(#(output, _new_memory)) -> Ok(output)
-    Error(e) -> Error(e)
-  }
+pub fn run(chain: Chain) -> Result(ChainEval, Error) {
+  execute_steps(chain.steps, "", chain.memory, call_ollama)
 }
 
 pub fn run_with(
   chain: Chain,
   llm_engine: fn(String, LLMConfig) -> Result(LLMResponse, Error),
-) -> Result(String, Error) {
-  case execute_steps(chain.steps, "", chain.memory, llm_engine) {
-    Ok(#(output, _new_memory)) -> Ok(output)
-    Error(e) -> Error(e)
-  }
+) -> Result(ChainEval, Error) {
+  execute_steps(chain.steps, "", chain.memory, llm_engine)
 }
 
 fn interpolate_template(
@@ -206,20 +214,48 @@ fn call_ollama(prompt: String, config: LLMConfig) -> Result(LLMResponse, Error) 
   }
 }
 
+fn update_memory_history(
+  memory: Memory,
+  input: String,
+  output: String,
+) -> Memory {
+  Memory(
+    variables: memory.variables,
+    history: list.append(memory.history, [LLMCall(input, output, birl.now())]),
+  )
+}
+
+fn update_memory_history_tool(
+  memory: Memory,
+  input: String,
+  output: String,
+  tool: Tool,
+) -> Memory {
+  Memory(
+    variables: memory.variables,
+    history: list.append(memory.history, [
+      ToolExecution(input, output, tool, birl.now()),
+    ]),
+  )
+}
+
 // Internal function to execute chain steps
 fn execute_steps(
   steps: List(ChainStep),
   input: String,
   memory: Memory,
   llm_engine: fn(String, LLMConfig) -> Result(LLMResponse, Error),
-) -> Result(#(String, Memory), Error) {
+) -> Result(ChainEval, Error) {
   case steps {
-    [] -> Ok(#(input, memory))
+    [] -> Ok(ChainEval(input, memory))
 
     [LLMStep(llm_config), ..rest] -> {
       // Call Ollama with the prompt and input
       case llm_engine(input, llm_config) {
-        Ok(Response(output)) -> execute_steps(rest, output, memory, llm_engine)
+        Ok(Response(output)) -> {
+          let new_memory = update_memory_history(memory, input, output)
+          execute_steps(rest, output, new_memory, llm_engine)
+        }
         Error(e) -> Error(e)
       }
     }
@@ -230,16 +266,29 @@ fn execute_steps(
         interpolate_template(template, memory.variables, tool_selectors)
       case llm_engine(input <> "\n" <> tool_prompt, llm_config) {
         Ok(Response(output)) -> {
-          let with_observations =
+          let new_memory = update_memory_history(memory, input, output)
+          let foun_tool =
             list.find_map(tool_selectors, fn(tool_selector) {
               let ToolSelector(selector, tool) = tool_selector
               selector(output)
-              |> option.map(fn(tool_input) { tool.function(tool_input) })
+              |> option.map(fn(tool_input) { #(tool_input, tool) })
               |> option.to_result(Nil)
             })
-            |> result.unwrap(Ok(output))
-          case with_observations {
-            Ok(output) -> execute_steps(rest, output, memory, llm_engine)
+          let fun_output = case foun_tool {
+            Ok(#(tool_input, tool)) -> {
+              tool.function(tool_input)
+            }
+            Error(Nil) -> Ok(output)
+          }
+          case fun_output {
+            Ok(output) -> {
+              let new_memory = case foun_tool {
+                Ok(#(_, tool)) ->
+                  update_memory_history_tool(new_memory, input, output, tool)
+                Error(Nil) -> new_memory
+              }
+              execute_steps(rest, output, new_memory, llm_engine)
+            }
             Error(e) -> Error(e)
           }
         }
@@ -249,7 +298,11 @@ fn execute_steps(
 
     [ToolStep(tool), ..rest] -> {
       case tool.function(input) {
-        Ok(output) -> execute_steps(rest, output, memory, llm_engine)
+        Ok(output) -> {
+          let new_memory =
+            update_memory_history_tool(memory, input, output, tool)
+          execute_steps(rest, output, new_memory, llm_engine)
+        }
         Error(e) -> Error(e)
       }
     }
@@ -261,7 +314,16 @@ fn execute_steps(
 
     [ChainBreaker(should_break), ..rest] ->
       case should_break(input) {
-        option.Some(output) -> execute_steps([], output, memory, llm_engine)
+        option.Some(output) -> {
+          let new_memory =
+            Memory(
+              variables: memory.variables,
+              history: list.append(memory.history, [
+                ChainBreak(input, output, birl.now()),
+              ]),
+            )
+          execute_steps([], output, new_memory, llm_engine)
+        }
         _ -> execute_steps(rest, input, memory, llm_engine)
       }
   }
