@@ -76,7 +76,7 @@ pub fn new() -> Chain {
 }
 
 // Add an LLM step to the chain
-pub fn add_llm(chain: Chain, llm_config: LLMConfig) -> Chain {
+pub fn add_llm(chain: Chain, config llm_config: LLMConfig) -> Chain {
   Chain(..chain, steps: list.append(chain.steps, [LLMStep(llm_config)]))
 }
 
@@ -246,48 +246,83 @@ fn execute_steps(
   memory: Memory,
   llm_engine: fn(String, LLMConfig) -> Result(LLMResponse, Error),
 ) -> Result(ChainEval, Error) {
+  execute_steps_helper(steps, input, "", memory, llm_engine)
+}
+
+fn execute_steps_helper(
+  steps: List(ChainStep),
+  input: String,
+  accumulated_input: String,
+  memory: Memory,
+  llm_engine: fn(String, LLMConfig) -> Result(LLMResponse, Error),
+) -> Result(ChainEval, Error) {
   case steps {
     [] -> Ok(ChainEval(input, memory))
 
     [LLMStep(llm_config), ..rest] -> {
-      // Call Ollama with the prompt and input
-      case llm_engine(input, llm_config) {
+      // Call Ollama with the prompt and accumulated input
+      case llm_engine(accumulated_input, llm_config) {
         Ok(Response(output)) -> {
           let new_memory = update_memory_history(memory, input, output)
-          execute_steps(rest, output, new_memory, llm_engine)
+          let accumulated_output = accumulated_input <> "\n" <> output
+          execute_steps_helper(
+            rest,
+            output,
+            accumulated_output,
+            new_memory,
+            llm_engine,
+          )
         }
         Error(e) -> Error(e)
       }
     }
 
     [LLMStepWithToolSelection(llm_config, tool_selectors, template), ..rest] -> {
-      // Call Ollama with the prompt and input
+      // Call Ollama with the prompt and accumulated input
       let tool_prompt =
         interpolate_template(template, memory.variables, tool_selectors)
-      case llm_engine(input <> "\n" <> tool_prompt, llm_config) {
+      case
+        llm_engine(
+          accumulated_input <> "\n" <> input <> "\n" <> tool_prompt,
+          llm_config,
+        )
+      {
         Ok(Response(output)) -> {
           let new_memory = update_memory_history(memory, input, output)
-          let foun_tool =
+          let found_tool =
             list.find_map(tool_selectors, fn(tool_selector) {
               let ToolSelector(selector, tool) = tool_selector
               selector(output)
               |> option.map(fn(tool_input) { #(tool_input, tool) })
               |> option.to_result(Nil)
             })
-          let fun_output = case foun_tool {
+          let fun_output = case found_tool {
             Ok(#(tool_input, tool)) -> {
               tool.function(tool_input)
             }
             Error(Nil) -> Ok(output)
           }
           case fun_output {
-            Ok(output) -> {
-              let new_memory = case foun_tool {
+            Ok(tool_output) -> {
+              let new_memory = case found_tool {
                 Ok(#(_, tool)) ->
-                  update_memory_history_tool(new_memory, input, output, tool)
+                  update_memory_history_tool(
+                    new_memory,
+                    input,
+                    tool_output,
+                    tool,
+                  )
                 Error(Nil) -> new_memory
               }
-              execute_steps(rest, output, new_memory, llm_engine)
+              let accumulated_output =
+                accumulated_input <> "\n" <> output <> "\n" <> tool_output
+              execute_steps_helper(
+                rest,
+                output,
+                accumulated_output,
+                new_memory,
+                llm_engine,
+              )
             }
             Error(e) -> Error(e)
           }
@@ -301,7 +336,14 @@ fn execute_steps(
         Ok(output) -> {
           let new_memory =
             update_memory_history_tool(memory, input, output, tool)
-          execute_steps(rest, output, new_memory, llm_engine)
+          let accumulated_output = accumulated_input <> "\n" <> output
+          execute_steps_helper(
+            rest,
+            output,
+            accumulated_output,
+            new_memory,
+            llm_engine,
+          )
         }
         Error(e) -> Error(e)
       }
@@ -309,22 +351,44 @@ fn execute_steps(
 
     [PromptTemplate(template), ..rest] -> {
       let output = interpolate_template(template, memory.variables, [])
-      execute_steps(rest, output, memory, llm_engine)
+      let accumulated_output = accumulated_input <> "\n" <> output
+      let new_memory = update_memory_history(memory, input, output)
+      execute_steps_helper(
+        rest,
+        output,
+        accumulated_output,
+        new_memory,
+        llm_engine,
+      )
     }
 
     [ChainBreaker(should_break), ..rest] ->
-      case should_break(input) {
+      case should_break(accumulated_input) {
         option.Some(output) -> {
+          let accumulated_output = accumulated_input <> "\n" <> output
           let new_memory =
             Memory(
               variables: memory.variables,
               history: list.append(memory.history, [
-                ChainBreak(input, output, birl.now()),
+                ChainBreak(accumulated_input, output, birl.now()),
               ]),
             )
-          execute_steps([], output, new_memory, llm_engine)
+          execute_steps_helper(
+            [],
+            output,
+            accumulated_output,
+            new_memory,
+            llm_engine,
+          )
         }
-        _ -> execute_steps(rest, input, memory, llm_engine)
+        _ ->
+          execute_steps_helper(
+            rest,
+            input,
+            accumulated_input,
+            memory,
+            llm_engine,
+          )
       }
   }
 }
