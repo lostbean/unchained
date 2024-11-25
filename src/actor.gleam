@@ -9,61 +9,65 @@ import gleam/otp/actor
 pub type NodeId =
   String
 
-pub type Edge {
-  Edge(from: NodeId, to: NodeId, condition: Option(fn(Message) -> Bool))
+pub type Edge(input) {
+  Edge(from: NodeId, to: NodeId, condition: Option(fn(Message(input)) -> Bool))
 }
 
-pub type Message {
-  Message(
-    id: String,
-    payload: dynamic.Dynamic,
-    metadata: Dict(String, dynamic.Dynamic),
-  )
+pub type Message(input) {
+  Message(id: String, payload: input, metadata: Dict(String, dynamic.Dynamic))
 }
 
-pub type Node {
+pub type Node(state, input, output) {
   Node(
     id: NodeId,
-    state: dynamic.Dynamic,
-    behavior: fn(Message, dynamic.Dynamic) -> NodeResult,
+    state: state,
+    behavior: fn(Message(input), state) -> NodeResult(state, input, output),
   )
 }
 
-pub type NodeResult {
+pub type NodeResult(state, input, output) {
   NodeResult(
-    new_state: dynamic.Dynamic,
-    messages: List(Message),
-    graph_updates: Option(GraphUpdate),
+    new_state: state,
+    messages: List(Message(input)),
+    graph_updates: Option(GraphUpdate(state, input, output)),
   )
+  // Stateless(output: output)
 }
 
-pub type GraphUpdate {
-  AddNode(node: Node)
+pub type GraphUpdate(state, input, output) {
+  AddNode(node: Node(state, input, output))
   RemoveNode(id: NodeId)
-  AddEdge(edge: Edge)
-  RemoveEdge(edge: Edge)
+  AddEdge(edge: Edge(input))
+  RemoveEdge(edge: Edge(input))
 }
 
-pub type Graph {
-  Graph(nodes: Dict(NodeId, Node), edges: List(Edge))
+pub type Graph(state, input, output) {
+  Graph(
+    nodes: Dict(NodeId, Node(state, input, output)),
+    edges: List(Edge(input)),
+  )
 }
 
 // Actor implementation for graph nodes
-pub type AgentMsg {
-  ProcessMessage(Message)
-  UpdateState(dynamic.Dynamic)
+pub type AgentMsg(state, input) {
+  ProcessMessage(Message(input))
+  UpdateState(state)
   Stop
 }
 
-pub fn start_agent(node: Node) {
+pub fn start_agent(node: Node(state, input, output)) {
   let init_state = #(node.id, node.state, node.behavior)
 
   actor.start(init_state, handle_message)
 }
 
 fn handle_message(
-  msg: AgentMsg,
-  state: #(NodeId, dynamic.Dynamic, fn(Message, dynamic.Dynamic) -> NodeResult),
+  msg: AgentMsg(state, input),
+  state: #(
+    NodeId,
+    state,
+    fn(Message(input), state) -> NodeResult(state, input, output),
+  ),
 ) {
   case msg {
     ProcessMessage(message) -> {
@@ -95,21 +99,24 @@ fn handle_message(
 }
 
 // Supervisor implementation
-pub type SupervisorMsg {
+pub type SupervisorMsg(state, input, output) {
   NodeFailed(NodeId)
   RestartNode(NodeId)
-  UpdateTopology(GraphUpdate)
+  UpdateTopology(GraphUpdate(state, input, output))
 }
 
-pub fn start_supervisor(initial_graph: Graph) {
+pub fn start_supervisor(initial_graph: Graph(state, input, output)) {
   let init_state = #(initial_graph, dict.new())
 
   actor.start(init_state, handle_supervisor_message)
 }
 
 fn handle_supervisor_message(
-  msg: SupervisorMsg,
-  state: #(Graph, Dict(NodeId, process.Subject(AgentMsg))),
+  msg: SupervisorMsg(state, input, output),
+  state: #(
+    Graph(state, input, output),
+    Dict(NodeId, process.Subject(AgentMsg(state, input))),
+  ),
 ) {
   case msg {
     NodeFailed(node_id) -> {
@@ -140,7 +147,10 @@ fn handle_supervisor_message(
 }
 
 // Helper functions
-pub fn apply_graph_update(graph: Graph, update: GraphUpdate) -> Graph {
+pub fn apply_graph_update(
+  graph: Graph(state, input, output),
+  update: GraphUpdate(state, input, output),
+) -> Graph(state, input, output) {
   case update {
     AddNode(node) -> {
       Graph(nodes: dict.insert(graph.nodes, node.id, node), edges: graph.edges)
@@ -168,12 +178,12 @@ pub fn apply_graph_update(graph: Graph, update: GraphUpdate) -> Graph {
   }
 }
 
-fn broadcast_graph_update(_update: GraphUpdate) {
+fn broadcast_graph_update(_update: GraphUpdate(state, input, output)) {
   // Implementation to broadcast topology updates to supervisor
   Nil
 }
 
-fn forward_message(_message: Message) {
+fn forward_message(_message: Message(input)) {
   // Implementation to route message to next node(s)
   Nil
 }

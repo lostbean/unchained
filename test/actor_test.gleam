@@ -1,5 +1,5 @@
 import gleam/dict
-import gleam/dynamic
+import gleam/dynamic.{type Dynamic}
 import gleam/erlang/process
 import gleam/list
 import gleam/option.{None, Some}
@@ -18,20 +18,20 @@ pub fn main() {
 }
 
 // Test helpers
-fn create_test_message(id: String, payload: dynamic.Dynamic) -> Message {
+fn create_test_message(id: String, payload: Dynamic) -> Message(Dynamic) {
   Message(id: id, payload: payload, metadata: dict.new())
 }
 
-fn create_echo_node(id: String) -> Node {
-  let behavior = fn(msg: Message, state: dynamic.Dynamic) {
+fn create_echo_node(id: String) -> Node(Dynamic, Dynamic, Dynamic) {
+  let behavior = fn(msg: Message(Dynamic), state: dynamic.Dynamic) {
     NodeResult(new_state: state, messages: [msg], graph_updates: None)
   }
 
   Node(id: id, state: dynamic.from(True), behavior: behavior)
 }
 
-fn create_stateful_counter_node(id: String) -> Node {
-  let behavior = fn(msg: Message, state: dynamic.Dynamic) {
+fn create_stateful_counter_node(id: String) -> Node(Dynamic, Dynamic, Dynamic) {
+  let behavior = fn(msg: Message(Dynamic), state: dynamic.Dynamic) {
     let current_count = case dynamic.int(state) {
       Ok(count) -> count
       Error(_) -> 0
@@ -47,8 +47,8 @@ fn create_stateful_counter_node(id: String) -> Node {
   Node(id: id, state: dynamic.from(0), behavior: behavior)
 }
 
-fn create_graph_updating_node(id: String) -> Node {
-  let behavior = fn(_msg: Message, state: dynamic.Dynamic) {
+fn create_graph_updating_node(id: String) -> Node(Dynamic, Dynamic, Dynamic) {
+  let behavior = fn(_msg: Message(Dynamic), state: dynamic.Dynamic) {
     let update = AddNode(create_echo_node("dynamic_node"))
 
     NodeResult(new_state: state, messages: [], graph_updates: Some(update))
@@ -107,7 +107,7 @@ pub fn edge_creation_test() {
 }
 
 pub fn conditional_edge_test() {
-  let condition = fn(msg: Message) -> Bool {
+  let condition = fn(msg: Message(Dynamic)) -> Bool {
     case dynamic.string(msg.payload) {
       Ok("allow") -> True
       _ -> False
