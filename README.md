@@ -7,6 +7,57 @@
 gleam add unchained
 ```
 
+## Architecture
+
+```mermaid
+graph LR
+    Supervisor[AgentSupervisor] --> Agent1[Agent 1]
+    Supervisor --> Agent2[Agent 2]
+    Supervisor --> AgentN[Agent N]
+
+    subgraph Agent Components
+        Agent1 --> Tools[ToolSet]
+        Agent1 --> TaskQueue[Task Queue]
+        Agent1 --> AgentState[Agent State]
+        Agent1 --> Memory[Persistent Memory]
+        Agent1 --> ErrorHandler[Error Recovery]
+    end
+
+    subgraph Communication
+        Agent1 -->|Typed Messages| Agent2
+        Agent2 -->|Typed Messages| AgentN
+    end
+
+    subgraph System Coordination
+        Registry[(Agent Registry)]
+        ErrorMonitoring[Error Monitoring]
+        MetricsCollector[Metrics Collector]
+
+        Supervisor -.-> Registry
+        Supervisor -.-> ErrorMonitoring
+        Supervisor -.-> MetricsCollector
+
+        Agent1 -.-> Registry
+        Agent1 -.-> ErrorMonitoring
+        Agent1 -.-> MetricsCollector
+    end
+
+    subgraph Recovery Strategies
+        RetryStrategy[Retry with Backoff]
+        FallbackStrategy[Fallback Agent]
+        CleanRestartStrategy[Clean Restart]
+        NotificationStrategy[Notify and Wait]
+    end
+
+    Supervisor --> Recovery[Error Recovery Mechanisms]
+    Recovery --> RetryStrategy
+    Recovery --> FallbackStrategy
+    Recovery --> CleanRestartStrategy
+    Recovery --> NotificationStrategy
+```
+
+## Example
+
 ```gleam
 import unchained
 
