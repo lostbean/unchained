@@ -31,6 +31,7 @@ pub type NodeResult(state, input, output) {
     messages: List(Message(input)),
     graph_updates: Option(GraphUpdate(state, input, output)),
   )
+  Halt
   // Stateless(output: output)
 }
 
@@ -72,19 +73,21 @@ fn handle_message(
   case msg {
     ProcessMessage(message) -> {
       let #(id, current_state, behavior) = state
-      let NodeResult(new_state, messages, updates) =
-        behavior(message, current_state)
+      case behavior(message, current_state) {
+        NodeResult(new_state, messages, updates) -> {
+          // Handle graph updates if any
+          case updates {
+            Some(update) -> broadcast_graph_update(update)
+            None -> Nil
+          }
 
-      // Handle graph updates if any
-      case updates {
-        Some(update) -> broadcast_graph_update(update)
-        None -> Nil
+          // Forward messages to next nodes
+          list.map(messages, forward_message)
+
+          actor.continue(#(id, new_state, behavior))
+        }
+        Halt -> actor.Stop(process.Normal)
       }
-
-      // Forward messages to next nodes
-      list.map(messages, forward_message)
-
-      actor.continue(#(id, new_state, behavior))
     }
 
     UpdateState(new_state) -> {

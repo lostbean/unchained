@@ -7,7 +7,7 @@ import gleam/otp/actor
 import gleeunit
 import gleeunit/should
 
-import actor.{
+import graph.{
   type Message, type Node, AddEdge, AddNode, Edge, Graph, Message, Node,
   NodeFailed, NodeResult, ProcessMessage, RemoveEdge, RemoveNode, Stop,
   UpdateTopology,
@@ -71,7 +71,8 @@ pub fn node_creation_test() {
 pub fn echo_node_behavior_test() {
   let node = create_echo_node("echo")
   let msg = create_test_message("test_msg", dynamic.from("hello"))
-  let NodeResult(new_state, messages, updates) = node.behavior(msg, node.state)
+  let assert NodeResult(new_state, messages, updates) =
+    node.behavior(msg, node.state)
 
   dynamic.from(True)
   |> should.equal(new_state)
@@ -87,8 +88,8 @@ pub fn stateful_counter_node_test() {
   let node = create_stateful_counter_node("counter")
   let msg = create_test_message("test_msg", dynamic.from("increment"))
 
-  let NodeResult(state1, _, _) = node.behavior(msg, node.state)
-  let NodeResult(state2, _, _) = node.behavior(msg, state1)
+  let assert NodeResult(state1, _, _) = node.behavior(msg, node.state)
+  let assert NodeResult(state2, _, _) = node.behavior(msg, state1)
 
   dynamic.int(state2)
   |> should.be_ok()
@@ -296,7 +297,7 @@ pub fn invalid_message_test() {
       metadata: dict.new(),
     )
 
-  let NodeResult(new_state, _messages, _updates) =
+  let assert NodeResult(new_state, _messages, _updates) =
     node.behavior(invalid_msg, node.state)
 
   // Should handle gracefully and maintain state
