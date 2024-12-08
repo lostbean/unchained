@@ -1,6 +1,5 @@
 import gleam/dict.{type Dict}
-import gleam/dynamic.{type Dynamic}
-import gleam/erlang/process.{type Subject}
+import gleam/dynamic
 import gleam/int
 import gleam/io
 import gleam/list
@@ -9,9 +8,9 @@ import gleam/result
 import gleam/string
 import gleeunit
 
-import smith
+import smith.{type Agent}
 import smith/task
-import smith/types.{type AgentError, type AgentId, type AgentMessage, type Tool}
+import smith/types.{type AgentError, type AgentId, type Tool}
 
 pub fn main() {
   gleeunit.main()
@@ -47,11 +46,12 @@ fn create_move_selection_tool() -> Tool {
 // Game state tracking
 pub type GameState {
   GameState(
-    players: List(Subject(AgentMessage)),
+    players: List(Agent(Option(Move))),
     moves: Dict(AgentId, Move),
     rounds_played: Int,
     max_rounds: Int,
     scores: Dict(AgentId, Int),
+    result: Option(GameResult),
   )
 }
 
@@ -69,17 +69,23 @@ pub fn determine_winner(move1: Move, move2: Move) -> GameResult {
 }
 
 // Judge agent implementation
-pub fn create_judge_agent() {
+pub fn create_judge_agent(initial_state: GameState) {
   let tools = [create_move_selection_tool()]
-  smith.start_default_agent(id: "judge_agent", tools: tools)
+  smith.start_default_agent(
+    id: "judge_agent",
+    tools: tools,
+    initial_state: initial_state,
+  )
 }
 
 // Player agent implementation
-pub fn create_player_agent(name: AgentId) {
+pub fn create_player_agent(
+  name: AgentId,
+) -> Result(Agent(Option(Move)), AgentError) {
   let tools = [create_move_selection_tool()]
 
   smith.start_agent(
-    smith.init_agent(id: name, tools: tools)
+    smith.init_agent(id: name, tools: tools, initial_state: None)
     |> smith.with_recovery_strategy(types.RetryWithBackoff(
       max_retries: 3,
       base_delay: 1000,
@@ -88,25 +94,26 @@ pub fn create_player_agent(name: AgentId) {
 }
 
 // Game orchestration
-pub fn start_rock_paper_scissors_game() -> Result(
-  Subject(AgentMessage),
-  AgentError,
-) {
+pub fn start_rock_paper_scissors_game() -> Result(Agent(GameState), AgentError) {
   // Create agents
-  use player1_agent <- result.try(create_player_agent("player1"))
-  use player2_agent <- result.try(create_player_agent("player2"))
-  use judge_agent <- result.try(create_judge_agent())
+  let judge_agent = {
+    use player1_agent <- result.try(create_player_agent("player1"))
+    use player2_agent <- result.try(create_player_agent("player2"))
+    let initial_game_state =
+      GameState(
+        players: [player1_agent, player2_agent],
+        moves: dict.new(),
+        rounds_played: 0,
+        max_rounds: 3,
+        scores: dict.from_list([#("player1", 0), #("player2", 0)]),
+        result: None,
+      )
+    use judge_agent <- result.try(create_judge_agent(initial_game_state))
+
+    Ok(judge_agent)
+  }
 
   // Initialize game state
-  let initial_game_state =
-    GameState(
-      players: [player1_agent, player2_agent],
-      moves: dict.new(),
-      rounds_played: 0,
-      max_rounds: 3,
-      scores: dict.from_list([#("player1", 0), #("player2", 0)]),
-    )
-
   // Create game task
   let game_task =
     task.create_task(
@@ -115,13 +122,18 @@ pub fn start_rock_paper_scissors_game() -> Result(
       priority: types.High,
       sender: "game_coordinator",
       target: "judge_agent",
-      context: dynamic.from(initial_game_state),
+      context: dynamic.from(Nil),
       required_tools: ["move_selector"],
     )
 
-  // Start game through judge agent
-  smith.send_task_to_agent(judge_agent, game_task)
-  Ok(judge_agent)
+  case judge_agent {
+    Ok(judge) -> {
+      // Start game through judge agent
+      smith.send_task_to_agent(judge, game_task)
+      Ok(judge)
+    }
+    Error(e) -> Error(e)
+  }
 }
 
 // Game round execution

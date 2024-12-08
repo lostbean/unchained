@@ -10,11 +10,14 @@ pub type AgentId =
 pub type ToolId =
   String
 
+pub type StateUpdater(st) =
+  fn(AgentState(st)) -> AgentState(st)
+
 // Custom types for agent messages
-pub type AgentMessage {
+pub type AgentMessage(st) {
   TaskAssignment(task: Task)
   ToolRequest(tool: ToolId, params: Dynamic)
-  StateUpdate(state: AgentState)
+  StateUpdate(state: AgentState(st))
   CompletionNotification(result: TaskResult)
 }
 
@@ -23,12 +26,13 @@ pub type MemoryEntry {
 }
 
 // Agent state definition
-pub type AgentState {
+pub type AgentState(st) {
   AgentState(
     id: AgentId,
     status: Status,
     current_task: Option(Task),
     memory: List(MemoryEntry),
+    state: st,
     tools: List(Tool),
     recovery_strategy: RecoveryStrategy,
     error_count: Int,

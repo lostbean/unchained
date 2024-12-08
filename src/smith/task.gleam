@@ -84,7 +84,7 @@ pub fn create_error_result(task: Task, error: AgentError) -> TaskResult {
   )
 }
 
-fn has_tool(_state: AgentState, _tool_name: String) -> Bool {
+fn has_tool(_state: AgentState(st), _tool_name: String) -> Bool {
   todo
 }
 
@@ -93,7 +93,7 @@ fn validate_dependencies(_dependencies: List(String)) -> Result(a, String) {
 }
 
 fn validate_task_requirements(
-  state: AgentState,
+  state: AgentState(st),
   task: Task,
 ) -> Result(Nil, AgentError) {
   // Check if agent has all required tools
@@ -114,7 +114,7 @@ fn validate_task_requirements(
 
 // Task validation and checking
 pub fn can_execute_task(
-  state: AgentState,
+  state: AgentState(st),
   task: Task,
 ) -> Result(Bool, AgentError) {
   case validate_task_requirements(state, task) {
@@ -132,7 +132,10 @@ pub fn can_execute_task(
 }
 
 // Task queue management
-pub fn add_task(state: AgentState, task: Task) -> Result(AgentState, AgentError) {
+pub fn add_task(
+  state: AgentState(st),
+  task: Task,
+) -> Result(AgentState(st), AgentError) {
   case can_execute_task(state, task) {
     Ok(True) -> {
       let new_state =
@@ -153,7 +156,10 @@ pub fn add_task(state: AgentState, task: Task) -> Result(AgentState, AgentError)
   }
 }
 
-pub fn complete_task(state: AgentState, result: TaskResult) -> AgentState {
+pub fn complete_task(
+  state: AgentState(st),
+  result: TaskResult,
+) -> AgentState(st) {
   case state.current_task {
     Some(task) -> {
       case task.id == result.task_id {

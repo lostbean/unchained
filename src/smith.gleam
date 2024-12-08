@@ -13,6 +13,9 @@ import smith/types.{
   type TaskResult, type Tool, type ToolId,
 }
 
+pub type Agent(st) =
+  Subject(AgentMessage(st))
+
 // Error handling and recovery
 /// ========================================================================
 /// Agent behavior implementation
@@ -22,13 +25,14 @@ import smith/types.{
 pub fn start_default_agent(
   id id: AgentId,
   tools tools: List(Tool),
-) -> Result(process.Subject(AgentMessage), AgentError) {
-  start_agent(init_agent(id, tools))
+  initial_state init_st: st,
+) -> Result(process.Subject(AgentMessage(st)), AgentError) {
+  start_agent(init_agent(id, tools, init_st))
 }
 
 pub fn start_agent(
-  state: AgentState,
-) -> Result(process.Subject(AgentMessage), AgentError) {
+  state: AgentState(st),
+) -> Result(process.Subject(AgentMessage(st)), AgentError) {
   actor.start(state, handle_message)
   |> result.map_error(fn(err) {
     types.InitializationError(
@@ -40,12 +44,17 @@ pub fn start_agent(
   })
 }
 
-pub fn init_agent(id id: AgentId, tools tools: List(Tool)) -> AgentState {
+pub fn init_agent(
+  id id: AgentId,
+  tools tools: List(Tool),
+  initial_state init_st: st,
+) -> AgentState(st) {
   types.AgentState(
     id: id,
     status: types.Available,
     current_task: None,
     memory: [],
+    state: init_st,
     tools: tools,
     recovery_strategy: types.RetryWithBackoff(max_retries: 5, base_delay: 1000),
     error_count: 0,
@@ -53,25 +62,25 @@ pub fn init_agent(id id: AgentId, tools tools: List(Tool)) -> AgentState {
 }
 
 pub fn with_recovery_strategy(
-  state: AgentState,
+  state: AgentState(st),
   strategy: types.RecoveryStrategy,
-) -> AgentState {
+) -> AgentState(st) {
   types.AgentState(..state, recovery_strategy: strategy)
 }
 
-pub fn send_task_to_agent(agent: Subject(AgentMessage), task: Task) -> Nil {
+pub fn send_task_to_agent(agent: Agent(st), task: Task) -> Nil {
   actor.send(agent, types.TaskAssignment(task))
 }
 
 pub fn run_tool_on_agent(
-  agent: Subject(AgentMessage),
+  agent: Agent(st),
   tool_id: ToolId,
   input: Dynamic,
 ) -> Nil {
   actor.send(agent, types.ToolRequest(tool_id, input))
 }
 
-fn handle_task_assignment(state: AgentState, task: Task) -> AgentState {
+fn handle_task_assignment(state: AgentState(st), task: Task) -> AgentState(st) {
   case task.add_task(state, task) {
     Ok(new_state) -> new_state
     Error(error) -> agent.handle_error_with_recovery(state, error)
@@ -79,10 +88,10 @@ fn handle_task_assignment(state: AgentState, task: Task) -> AgentState {
 }
 
 fn handle_tool_request(
-  state: AgentState,
+  state: AgentState(st),
   tool_id: ToolId,
   params: Dynamic,
-) -> AgentState {
+) -> AgentState(st) {
   case execute_tool(state, tool_id, params) {
     Ok(result) -> {
       // TODO: apply result to state
@@ -94,7 +103,10 @@ fn handle_tool_request(
   }
 }
 
-fn merge_state(state: AgentState, new_state: AgentState) -> AgentState {
+fn merge_state(
+  state: AgentState(st),
+  new_state: AgentState(st),
+) -> AgentState(st) {
   // Merge memory entries
   let memory = list.append(state.memory, new_state.memory)
   // Merge tools
@@ -102,7 +114,10 @@ fn merge_state(state: AgentState, new_state: AgentState) -> AgentState {
   types.AgentState(..state, memory: memory, tools: tools)
 }
 
-fn handle_completion(state: AgentState, result: TaskResult) -> AgentState {
+fn handle_completion(
+  state: AgentState(st),
+  result: TaskResult,
+) -> AgentState(st) {
   case state.current_task {
     Some(task) -> {
       case task.id == result.task_id {
@@ -120,9 +135,9 @@ fn handle_completion(state: AgentState, result: TaskResult) -> AgentState {
 
 // Message handling
 pub fn handle_message(
-  message: AgentMessage,
-  state: AgentState,
-) -> actor.Next(AgentMessage, AgentState) {
+  message: AgentMessage(st),
+  state: AgentState(st),
+) -> actor.Next(AgentMessage(st), AgentState(st)) {
   let new_state = case message {
     types.TaskAssignment(task) -> {
       handle_task_assignment(state, task)
@@ -161,9 +176,9 @@ fn validate_tool(tool: Tool) -> Result(Nil, String) {
 
 // Tool registration and management
 pub fn register_tool(
-  state: AgentState,
+  state: AgentState(st),
   tool: Tool,
-) -> Result(AgentState, String) {
+) -> Result(AgentState(st), String) {
   case validate_tool(tool) {
     Ok(_) -> {
       Ok(types.AgentState(..state, tools: [tool, ..state.tools]))
@@ -181,7 +196,7 @@ fn find_tool(tools: List(Tool), tool_id: ToolId) -> Result(Tool, String) {
 
 // Helper function for type-safe tool execution
 pub fn execute_tool(
-  state: AgentState,
+  state: AgentState(st),
   tool_id: ToolId,
   params: Dynamic,
 ) -> Result(Dynamic, AgentError) {

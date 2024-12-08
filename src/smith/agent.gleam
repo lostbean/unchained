@@ -7,18 +7,21 @@ import smith/task
 import smith/types.{type AgentError, type AgentId, type AgentState, type Status}
 
 // Status management functions
-pub fn update_agent_status(state: AgentState, new_status: Status) -> AgentState {
+pub fn update_agent_status(
+  state: AgentState(st),
+  new_status: Status,
+) -> AgentState(st) {
   types.AgentState(..state, status: new_status)
 }
 
-pub fn is_available(state: AgentState) -> Bool {
+pub fn is_available(state: AgentState(st)) -> Bool {
   case state.status {
     types.Available -> True
     _ -> False
   }
 }
 
-pub fn is_busy(state: AgentState) -> Bool {
+pub fn is_busy(state: AgentState(st)) -> Bool {
   case state.status {
     types.Busy(_) -> True
     _ -> False
@@ -26,9 +29,9 @@ pub fn is_busy(state: AgentState) -> Bool {
 }
 
 pub fn handle_error_with_recovery(
-  state: AgentState,
+  state: AgentState(st),
   err: AgentError,
-) -> AgentState {
+) -> AgentState(st) {
   // Log the error
   // log_error(state.id, error)
 
@@ -64,9 +67,9 @@ pub fn calculate_backoff_delay(base_delay: Int, error_count: Int) -> Int {
 }
 
 pub fn retry_failed_operation(
-  state: AgentState,
+  state: AgentState(st),
   error: AgentError,
-) -> AgentState {
+) -> AgentState(st) {
   let new_state = types.AgentState(..state, error_count: state.error_count + 1)
   case state.current_task {
     Some(task) -> {
@@ -79,19 +82,19 @@ pub fn retry_failed_operation(
 }
 
 pub fn delegate_to_fallback(
-  _state: AgentState,
+  _state: AgentState(st),
   _fallback_agent: AgentId,
   _error: AgentError,
-) -> AgentState {
+) -> AgentState(st) {
   // supervisor.delegate(state.id, fallback_agent, error)
   todo
 }
 
-pub fn pause_agent(state: AgentState, reason: String) -> AgentState {
+pub fn pause_agent(state: AgentState(st), reason: String) -> AgentState(st) {
   types.AgentState(..state, status: types.Paused(reason), current_task: None)
 }
 
-fn attempt_recovery(state: AgentState, error: AgentError) -> AgentState {
+fn attempt_recovery(state: AgentState(st), error: AgentError) -> AgentState(st) {
   case state.recovery_strategy {
     types.RetryWithBackoff(max_retries, base_delay) -> {
       case state.error_count <= max_retries {
