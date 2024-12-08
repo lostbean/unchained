@@ -1,9 +1,10 @@
 import gleam/dynamic.{type Dynamic}
-import gleam/erlang/process.{type Pid}
+import gleam/erlang/process.{type Pid, type Subject}
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/otp/actor
 import gleam/result
+import gleam/string
 
 import smith/agent
 import smith/task
@@ -18,14 +19,28 @@ import smith/types.{
 /// ========================================================================
 // Agent behavior implementation
 
-pub fn start_agent(
-  id: AgentId,
-  tools: List(Tool),
-) -> Result(process.Subject(AgentMessage), actor.StartError) {
-  actor.start(init_agent(id, tools), handle_message)
+pub fn start_default_agent(
+  id id: AgentId,
+  tools tools: List(Tool),
+) -> Result(process.Subject(AgentMessage), AgentError) {
+  start_agent(init_agent(id, tools))
 }
 
-fn init_agent(id: AgentId, tools: List(Tool)) -> AgentState {
+pub fn start_agent(
+  state: AgentState,
+) -> Result(process.Subject(AgentMessage), AgentError) {
+  actor.start(state, handle_message)
+  |> result.map_error(fn(err) {
+    types.InitializationError(
+      "Failed to start agent_id: '"
+      <> state.id
+      <> "', reason: "
+      <> string.inspect(err),
+    )
+  })
+}
+
+pub fn init_agent(id id: AgentId, tools tools: List(Tool)) -> AgentState {
   types.AgentState(
     id: id,
     status: types.Available,
@@ -35,6 +50,25 @@ fn init_agent(id: AgentId, tools: List(Tool)) -> AgentState {
     recovery_strategy: types.RetryWithBackoff(max_retries: 5, base_delay: 1000),
     error_count: 0,
   )
+}
+
+pub fn with_recovery_strategy(
+  state: AgentState,
+  strategy: types.RecoveryStrategy,
+) -> AgentState {
+  types.AgentState(..state, recovery_strategy: strategy)
+}
+
+pub fn send_task_to_agent(agent: Subject(AgentMessage), task: Task) -> Nil {
+  actor.send(agent, types.TaskAssignment(task))
+}
+
+pub fn run_tool_on_agent(
+  agent: Subject(AgentMessage),
+  tool_id: ToolId,
+  input: Dynamic,
+) -> Nil {
+  actor.send(agent, types.ToolRequest(tool_id, input))
 }
 
 fn handle_task_assignment(state: AgentState, task: Task) -> AgentState {
@@ -51,7 +85,9 @@ fn handle_tool_request(
 ) -> AgentState {
   case execute_tool(state, tool_id, params) {
     Ok(result) -> {
-      // log_tool_execution(state.id, tool_id, params, result)
+      // TODO: apply result to state
+      // TODO: log tool execution
+      // TODO: send completion notification
       state
     }
     Error(error) -> agent.handle_error_with_recovery(state, error)

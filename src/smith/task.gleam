@@ -19,7 +19,7 @@ fn generate_task_id() -> String {
   let random_suffix = "xyz"
   string.concat([
     "task_",
-    int.to_string(timestamp.wall_time),
+    int.to_string(birl.to_unix(timestamp)),
     "_",
     random_suffix,
   ])
@@ -27,13 +27,13 @@ fn generate_task_id() -> String {
 
 // Helper functions for task management
 pub fn create_task(
-  name: String,
-  description: String,
-  priority: TaskPriority,
-  sender: AgentId,
-  target: AgentId,
-  context: Dynamic,
-  required_tools: List(ToolId),
+  name name: String,
+  description description: String,
+  priority priority: TaskPriority,
+  sender sender: AgentId,
+  target target: AgentId,
+  context context: Dynamic,
+  required_tools required_tools: List(ToolId),
 ) -> Task {
   types.Task(
     id: generate_task_id(),
@@ -41,7 +41,7 @@ pub fn create_task(
     description: description,
     priority: priority,
     status: types.Pending,
-    created_at: birl.now().wall_time,
+    created_at: birl.to_unix(birl.now()),
     deadline: None,
     dependencies: [],
     sender: sender,
