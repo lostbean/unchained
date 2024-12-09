@@ -36,14 +36,11 @@ pub fn format_recovery_strategy(strategy: RecoveryStrategy) -> String {
 // Error handling utilities
 pub fn format_error(error: AgentError) -> String {
   case error {
-    types.ToolExecutionError(tool_id, reason) ->
-      string.concat(["Tool execution failed for ", tool_id, ": ", reason])
+    types.ToolExecutionError(reason) ->
+      string.concat(["Tool execution failed: ", reason])
 
-    types.ToolNotFoundError(tool_id) ->
-      string.concat(["Tool not found: ", tool_id])
-
-    types.ToolInitializationError(tool_id, reason) ->
-      string.concat(["Failed to initialize tool ", tool_id, ": ", reason])
+    types.ToolNotFoundError(decode_error) ->
+      string.concat(["Invalid tool call: ", string.inspect(decode_error)])
 
     types.TaskExecutionError(task_id, reason) ->
       string.concat(["Task execution failed for ", task_id, ": ", reason])
@@ -149,13 +146,12 @@ pub fn get_error_severity(error: AgentError) -> ErrorSeverity {
     types.RecoveryStrategyError(_, _) -> HighError
     types.ShutdownError(_) -> HighError
 
-    types.ToolExecutionError(_, _) -> MediumError
+    types.ToolExecutionError(_) -> MediumError
     types.TaskTimeoutError(_, _) -> MediumError
     types.ResourceExhausted(_) -> MediumError
     types.MessageDeliveryError(_, _) -> MediumError
     types.RetryLimitExceeded(_, _) -> MediumError
 
-    types.ToolInitializationError(_, _) -> LowError
     types.TaskValidationError(_, _) -> LowError
     types.ToolNotFoundError(_) -> LowError
     types.CustomError(_, _, _) -> LowError

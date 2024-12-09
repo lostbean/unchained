@@ -10,7 +10,7 @@ import gleeunit
 
 import smith.{type Agent}
 import smith/task
-import smith/types.{type AgentError, type AgentId, type Tool}
+import smith/types.{type AgentError, type AgentId, type ToolSet}
 
 pub fn main() {
   gleeunit.main()
@@ -28,17 +28,42 @@ pub type GameResult {
   Draw
 }
 
+pub type PlayerTools {
+  PlayMatch
+}
+
 // Specific game-related tools
-fn create_move_selection_tool() -> Tool {
-  types.Tool(
-    id: "move_selector",
-    name: "Move Selection Tool",
-    description: "Generates a random move for the game",
-    handler: fn(_) {
-      let moves = [Rock, Paper, Scissors]
-      Ok(
-        list.shuffle(moves) |> list.first |> result.unwrap(Rock) |> dynamic.from,
-      )
+fn create_move_selection_tool() -> ToolSet(Move, PlayerTools) {
+  types.ToolSet(decoder: todo, actions: fn(_, _, _) {
+    let moves = [Rock, Paper, Scissors]
+    list.shuffle(moves) |> list.first |> result.unwrap(Rock)
+  })
+}
+
+pub type JudgeTools {
+  EvaluateMatch(Move, Move)
+  CallPlayer(String)
+}
+
+fn create_judge_tool() -> ToolSet(GameState, JudgeTools) {
+  types.ToolSet(
+    decoder: todo,
+    actions: fn(input, _, state: GameState) -> GameState {
+      case input {
+        EvaluateMatch(move1, move2) -> {
+          GameState(..state, result: Some(determine_winner(move1, move2)))
+        }
+
+        CallPlayer(player) -> {
+          case dict.get(state.players, player) {
+            Ok(agent) -> {
+              smith.run_tool_on_agent(agent, PlayMatch)
+            }
+            Error(_) -> Nil
+          }
+          state
+        }
+      }
     },
   )
 }
@@ -46,7 +71,7 @@ fn create_move_selection_tool() -> Tool {
 // Game state tracking
 pub type GameState {
   GameState(
-    players: List(Agent(Option(Move))),
+    players: Dict(String, Agent(Move, PlayerTools)),
     moves: Dict(AgentId, Move),
     rounds_played: Int,
     max_rounds: Int,
@@ -70,7 +95,7 @@ pub fn determine_winner(move1: Move, move2: Move) -> GameResult {
 
 // Judge agent implementation
 pub fn create_judge_agent(initial_state: GameState) {
-  let tools = [create_move_selection_tool()]
+  let tools = create_judge_tool()
   smith.start_default_agent(
     id: "judge_agent",
     tools: tools,
@@ -81,11 +106,11 @@ pub fn create_judge_agent(initial_state: GameState) {
 // Player agent implementation
 pub fn create_player_agent(
   name: AgentId,
-) -> Result(Agent(Option(Move)), AgentError) {
-  let tools = [create_move_selection_tool()]
+) -> Result(Agent(Move, PlayerTools), AgentError) {
+  let tools = create_move_selection_tool()
 
   smith.start_agent(
-    smith.init_agent(id: name, tools: tools, initial_state: None)
+    smith.init_agent(id: name, tools: tools, initial_state: Paper)
     |> smith.with_recovery_strategy(types.RetryWithBackoff(
       max_retries: 3,
       base_delay: 1000,
@@ -94,14 +119,20 @@ pub fn create_player_agent(
 }
 
 // Game orchestration
-pub fn start_rock_paper_scissors_game() -> Result(Agent(GameState), AgentError) {
+pub fn start_rock_paper_scissors_game() -> Result(
+  Agent(GameState, JudgeTools),
+  AgentError,
+) {
   // Create agents
+  // TODO: make player creation a tool and figure out how to deal with dynamic agents lifecycle (creation, deletion, supervision)
   let judge_agent = {
     use player1_agent <- result.try(create_player_agent("player1"))
     use player2_agent <- result.try(create_player_agent("player2"))
     let initial_game_state =
       GameState(
-        players: [player1_agent, player2_agent],
+        players: dict.new()
+          |> dict.insert("Robert", player1_agent)
+          |> dict.insert("Julia", player2_agent),
         moves: dict.new(),
         rounds_played: 0,
         max_rounds: 3,
@@ -123,7 +154,6 @@ pub fn start_rock_paper_scissors_game() -> Result(Agent(GameState), AgentError) 
       sender: "game_coordinator",
       target: "judge_agent",
       context: dynamic.from(Nil),
-      required_tools: ["move_selector"],
     )
 
   case judge_agent {
@@ -142,7 +172,7 @@ pub fn execute_game_round(
 ) -> Result(GameState, AgentError) {
   // Select moves for both players
   game_state.players
-  |> list.each(smith.run_tool_on_agent(_, "move_selector", dynamic.from(Nil)))
+  |> dict.each(fn(_name, player) { smith.run_tool_on_agent(player, PlayMatch) })
 
   // TODO: gather moves from agents
   let player1_move = Rock

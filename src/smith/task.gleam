@@ -2,13 +2,12 @@ import birl
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/int
-import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 
 import smith/types.{
   type AgentError, type AgentId, type AgentState, type Task, type TaskPriority,
-  type TaskResult, type TaskStatus, type ToolId,
+  type TaskResult, type TaskStatus,
 }
 
 // Previous imports and type definitions remain the same...
@@ -33,7 +32,6 @@ pub fn create_task(
   sender sender: AgentId,
   target target: AgentId,
   context context: Dynamic,
-  required_tools required_tools: List(ToolId),
 ) -> Task {
   types.Task(
     id: generate_task_id(),
@@ -47,7 +45,6 @@ pub fn create_task(
     sender: sender,
     target: target,
     context: context,
-    required_tools: required_tools,
   )
 }
 
@@ -59,7 +56,7 @@ pub fn create_task_result(
   task: Task,
   output: Dynamic,
   execution_time: Int,
-  tools_used: List(ToolId),
+  tools_used: List(String),
 ) -> TaskResult {
   types.TaskResult(
     task_id: task.id,
@@ -84,58 +81,25 @@ pub fn create_error_result(task: Task, error: AgentError) -> TaskResult {
   )
 }
 
-fn has_tool(_state: AgentState(st), _tool_name: String) -> Bool {
-  todo
-}
-
-fn validate_dependencies(_dependencies: List(String)) -> Result(a, String) {
-  todo
-}
-
-fn validate_task_requirements(
-  state: AgentState(st),
-  task: Task,
-) -> Result(Nil, AgentError) {
-  // Check if agent has all required tools
-  let has_tools =
-    list.all(task.required_tools, fn(tool_id) { has_tool(state, tool_id) })
-
-  case has_tools {
-    False -> Error(types.StateError("Missing required tools"))
-    True -> {
-      // Check if all dependencies are completed
-      case validate_dependencies(task.dependencies) {
-        Ok(_) -> Ok(Nil)
-        Error(reason) -> Error(types.TaskExecutionError(task.id, reason))
-      }
-    }
-  }
-}
-
 // Task validation and checking
 pub fn can_execute_task(
-  state: AgentState(st),
-  task: Task,
+  state: AgentState(state, tool),
+  _task: Task,
 ) -> Result(Bool, AgentError) {
-  case validate_task_requirements(state, task) {
-    Ok(_) -> {
-      case state.status {
-        types.Available -> Ok(True)
-        types.Busy(count) -> {
-          Ok(count < 8)
-        }
-        _ -> Ok(False)
-      }
+  case state.status {
+    types.Available -> Ok(True)
+    types.Busy(count) -> {
+      Ok(count < 8)
     }
-    Error(error) -> Error(error)
+    _ -> Ok(False)
   }
 }
 
 // Task queue management
 pub fn add_task(
-  state: AgentState(st),
+  state: AgentState(state, tool),
   task: Task,
-) -> Result(AgentState(st), AgentError) {
+) -> Result(AgentState(state, tool), AgentError) {
   case can_execute_task(state, task) {
     Ok(True) -> {
       let new_state =
@@ -157,9 +121,9 @@ pub fn add_task(
 }
 
 pub fn complete_task(
-  state: AgentState(st),
+  state: AgentState(state, tool),
   result: TaskResult,
-) -> AgentState(st) {
+) -> AgentState(state, tool) {
   case state.current_task {
     Some(task) -> {
       case task.id == result.task_id {

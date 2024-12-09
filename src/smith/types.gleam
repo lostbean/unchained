@@ -1,23 +1,26 @@
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/option.{type Option}
+import json/blueprint.{type Decoder}
 
 // Type definitions for the core components
 
 pub type AgentId =
   String
 
-pub type ToolId =
-  String
-
-pub type StateUpdater(st) =
-  fn(AgentState(st)) -> AgentState(st)
+pub type ToolSet(state, tool) {
+  ToolSet(
+    decoder: Decoder(tool),
+    actions: fn(tool, List(MemoryEntry), state) -> state,
+  )
+}
 
 // Custom types for agent messages
-pub type AgentMessage(st) {
+pub type AgentMessage(state, tool) {
   TaskAssignment(task: Task)
-  ToolRequest(tool: ToolId, params: Dynamic)
-  StateUpdate(state: AgentState(st))
+  ApplyTool(tool: tool)
+  FindAndApplyTool(params: Dynamic)
+  StateUpdate(state: AgentState(state, tool))
   CompletionNotification(result: TaskResult)
 }
 
@@ -26,14 +29,15 @@ pub type MemoryEntry {
 }
 
 // Agent state definition
-pub type AgentState(st) {
+pub type AgentState(state, tool) {
   AgentState(
     id: AgentId,
     status: Status,
     current_task: Option(Task),
     memory: List(MemoryEntry),
-    state: st,
-    tools: List(Tool),
+    state: state,
+    // TODO:make toolset optional
+    tools: ToolSet(state, tool),
     recovery_strategy: RecoveryStrategy,
     error_count: Int,
   )
@@ -65,8 +69,6 @@ pub type Task {
     target: AgentId,
     // Agent meant to execute the task
     context: Dynamic,
-    // Task-specific data
-    required_tools: List(ToolId),
   )
 }
 
@@ -92,7 +94,7 @@ pub type TaskResult {
     status: TaskStatus,
     output: Dynamic,
     execution_time: Int,
-    tools_used: List(ToolId),
+    tools_used: List(String),
     error: Option(AgentError),
     metadata: Dict(String, Dynamic),
   )
@@ -105,21 +107,10 @@ pub type RecoveryStrategy {
   NotifyAndWait
 }
 
-// Tool definition
-pub type Tool {
-  Tool(
-    id: ToolId,
-    name: String,
-    description: String,
-    handler: fn(Dynamic) -> Result(Dynamic, String),
-  )
-}
-
 pub type AgentError {
   // Tool related errors
-  ToolExecutionError(tool_id: ToolId, reason: String)
-  ToolNotFoundError(tool_id: ToolId)
-  ToolInitializationError(tool_id: ToolId, reason: String)
+  ToolExecutionError(reason: String)
+  ToolNotFoundError(error: List(dynamic.DecodeError))
 
   // Task related errors
   TaskExecutionError(task_id: String, reason: String)
