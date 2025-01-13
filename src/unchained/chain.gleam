@@ -48,11 +48,16 @@ pub type HistoryEntry {
   ChainBreak(input: String, output: String, timestamp: Time)
 }
 
+pub type ToolArg {
+  ToolArg(name: String, description: String)
+}
+
 pub type Tool {
   Tool(
     name: String,
     description: String,
-    function: fn(String) -> Result(String, Error),
+    args: List(ToolArg),
+    function: fn(List(String)) -> Result(String, Error),
   )
 }
 
@@ -298,7 +303,13 @@ fn execute_steps_helper(
             })
           let fun_output = case found_tool {
             Ok(#(tool_input, tool)) -> {
-              tool.function(tool_input)
+              // Split the input into arguments
+              let args =
+                tool_input
+                |> string.trim()
+                |> string.split(on: "|")
+                |> list.map(string.trim)
+              tool.function(args)
             }
             Error(Nil) -> Ok(output)
           }
@@ -332,7 +343,12 @@ fn execute_steps_helper(
     }
 
     [ToolStep(tool), ..rest] -> {
-      case tool.function(input) {
+      let args =
+        input
+        |> string.trim()
+        |> string.split(on: "|")
+        |> list.map(string.trim)
+      case tool.function(args) {
         Ok(output) -> {
           let new_memory =
             update_memory_history_tool(memory, input, output, tool)
