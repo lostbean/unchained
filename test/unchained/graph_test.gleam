@@ -5,8 +5,8 @@ import gleam/result
 import gleam/string
 import gleeunit
 import gleeunit/should
-import graph
-import unchained.{type Chain, type Error}
+import unchained/chain.{type Chain, type Error}
+import unchained/graph
 
 pub fn main() {
   gleeunit.main()
@@ -17,7 +17,7 @@ pub type TestState {
 }
 
 fn test_chain() -> Chain {
-  unchained.new()
+  chain.new()
 }
 
 fn increment_node(_chain: Chain, state: TestState) -> Result(TestState, Error) {
@@ -29,7 +29,7 @@ fn double_node(_chain: Chain, state: TestState) -> Result(TestState, Error) {
 }
 
 fn error_node(_chain: Chain, _state: TestState) -> Result(TestState, Error) {
-  Error(unchained.ChainError("Test error"))
+  Error(chain.ChainError("Test error"))
 }
 
 fn extract_value(state: TestState) -> Result(String, Error) {
@@ -144,7 +144,7 @@ pub fn missing_node_test() {
   let initial_state = TestState(value: 1, path: [])
   let graph = graph.new("non_existent", initial_state, extract_value)
 
-  let assert Error(unchained.ChainError(msg)) = graph.run(graph, test_chain())
+  let assert Error(chain.ChainError(msg)) = graph.run(graph, test_chain())
   msg
   |> should.equal("Node not found: non_existent")
 }

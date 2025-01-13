@@ -2,7 +2,7 @@ import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import unchained.{type Chain, type ChainEval, type Error, ChainEval}
+import unchained/chain.{type Chain, type ChainEval, type Error, ChainEval}
 
 pub type Graph(state) {
   Graph(
@@ -99,7 +99,7 @@ fn execute_node(
         Error(e) -> Error(e)
       }
     }
-    Error(_) -> Error(unchained.ChainError("Node not found: " <> current_node))
+    Error(_) -> Error(chain.ChainError("Node not found: " <> current_node))
   }
 }
 
