@@ -5,20 +5,19 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
-  outputs = {
-    nixpkgs,
-    flake-utils,
-    ...
-  }:
-    flake-utils.lib.eachDefaultSystem
-    (
-      system: let
+  outputs =
+    {
+      nixpkgs,
+      flake-utils,
+      ...
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
         pkgs = import nixpkgs {
           inherit system;
           overlays = [
-            (
-              final: prev: {erlang = final.erlang_27;}
-            )
+            (final: prev: { erlang = final.erlang_27; })
           ];
         };
 
@@ -27,8 +26,10 @@
           erlang
           rebar3
           ollama
+          nodejs
         ];
-      in {
+      in
+      {
         devShells.default = pkgs.mkShell {
           buildInputs = devTools;
           shellHook = ''
